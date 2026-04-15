@@ -7,12 +7,25 @@ from dataclasses import asdict
 from pathlib import Path
 
 from async_rl_lite import ExperimentConfig, run_async_experiment, run_sync_experiment
+from async_rl_lite.config import DistributedConfig, RepackConfig, FaultToleranceConfig
 
 
 RESULT_PATH = Path("latest_results.json")
 
 
 def build_config(args: argparse.Namespace) -> ExperimentConfig:
+    distributed = DistributedConfig(
+        num_rollout_machines=getattr(args, "num_machines", 4),
+        rollouts_per_machine=getattr(args, "rollouts_per_machine", 2),
+        broadcast_topology=getattr(args, "broadcast_topology", "chain"),
+    )
+    repack = RepackConfig(
+        enabled=getattr(args, "enable_repack", True),
+        idle_fraction_threshold=getattr(args, "repack_idle_threshold", 0.25),
+    )
+    fault_tolerance = FaultToleranceConfig(
+        checkpoint_interval_updates=getattr(args, "checkpoint_interval", 10),
+    )
     return ExperimentConfig(
         seed=args.seed,
         num_updates=args.updates,
@@ -23,6 +36,11 @@ def build_config(args: argparse.Namespace) -> ExperimentConfig:
         max_decode_steps=args.decode_steps,
         trace_examples=args.trace_examples,
         verbose=not args.quiet,
+        lr_schedule=getattr(args, "lr_schedule", "constant"),
+        advantage_method=getattr(args, "advantage_method", "normalize"),
+        distributed=distributed,
+        repack=repack,
+        fault_tolerance=fault_tolerance,
     )
 
 
@@ -65,7 +83,7 @@ async def main_async(args: argparse.Namespace) -> dict[str, object]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run the async RL lite demo.")
+    parser = argparse.ArgumentParser(description="Run the scalable async RL framework demo.")
     parser.add_argument("--mode", choices=("async", "sync", "both"), default="both")
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--updates", type=int, default=24)
@@ -76,6 +94,23 @@ def main() -> None:
     parser.add_argument("--decode-steps", type=int, default=4)
     parser.add_argument("--trace-examples", type=int, default=6)
     parser.add_argument("--quiet", action="store_true")
+
+    # Distributed config
+    parser.add_argument("--num-machines", type=int, default=4)
+    parser.add_argument("--rollouts-per-machine", type=int, default=2)
+    parser.add_argument("--broadcast-topology", choices=("chain", "tree"), default="chain")
+
+    # Repack config
+    parser.add_argument("--enable-repack", action="store_true", default=True)
+    parser.add_argument("--repack-idle-threshold", type=float, default=0.25)
+
+    # Fault tolerance config
+    parser.add_argument("--checkpoint-interval", type=int, default=10)
+
+    # Training config
+    parser.add_argument("--lr-schedule", choices=("constant", "cosine", "linear"), default="constant")
+    parser.add_argument("--advantage-method", choices=("normalize", "baseline", "rank"), default="normalize")
+
     args = parser.parse_args()
 
     results = asyncio.run(main_async(args))
